@@ -6,3 +6,4 @@ dist
 functions/node_modules
 functions/lib
 service-account.json
+/firebase-debug.log

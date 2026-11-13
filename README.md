@@ -47,6 +47,8 @@ For automatic payment confirmation, integrate a payment provider with signed ser
 
 7. Deploy the frontend with `npm run build` and `firebase deploy --only hosting`. `firebase.json` includes a single-page-app rewrite for customer and admin routes.
 
+For a Render Node web service, use `npm install` as the build command, `npm run build` as the build step, and `npm start` as the start command. The start script serves the production build on Render's `PORT` (or port 4173 locally).
+
 ## Data and authorization
 
 - `products`, `categories`, `banners`, and `settings/shop` are managed from the admin UI and read live by the customer site.
