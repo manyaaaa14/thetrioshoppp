@@ -13,8 +13,12 @@ export type Product = {
   stock: number;
   categoryId: string;
   imageUrl?: string;
+  images?: string[];
+  discountPrice?: number;
   active: boolean;
+  featured?: boolean;
   popular?: boolean;
+  trending?: boolean;
   createdAt?: { seconds: number };
 };
 
@@ -38,15 +42,22 @@ export type CustomerProfile = {
   fullName: string;
   mobile: string;
   email: string;
-  hostelName: string;
   roomNumber: string;
   deliveryAddress: string;
 };
 
+export type OrderCustomer = CustomerProfile & {
+  hostelName: string;
+};
+
+export type DeliveryMethod = "pickup" | "room_delivery";
+
 export type Order = {
   id: string;
   customerId: string;
-  customer: CustomerProfile;
+  customer: OrderCustomer;
+  deliveryMethod?: DeliveryMethod;
+  pickupLocation?: string;
   items: Array<{ productId: string; name: string; imageUrl: string; unitPrice: number; quantity: number }>;
   subtotal: number;
   deliveryFee: number;

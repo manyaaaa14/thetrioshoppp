@@ -5,6 +5,8 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 initializeApp();
 const db = getFirestore();
 const DELIVERY_FEE = 10;
+const HOSTEL_NAME = "Kalpana Hostel";
+const PICKUP_LOCATION = "Room No. 222, Kalpana Hostel, Landran, Mohali, Punjab";
 
 function requireUser(uid: string | undefined): asserts uid is string {
   if (!uid) throw new HttpsError("unauthenticated", "Please sign in first.");
@@ -20,8 +22,9 @@ function requireAdmin(request: { auth?: { uid: string; token: Record<string, unk
 export const createOrder = onCall(async (request) => {
   requireUser(request.auth?.uid);
   const uid = request.auth.uid;
-  const { items, roomNumber, deliveryAddress, paymentReference } = request.data as {
+  const { items, deliveryMethod, roomNumber, deliveryAddress, paymentReference } = request.data as {
     items?: Array<{ productId: string; quantity: number }>;
+    deliveryMethod?: string;
     roomNumber?: string;
     deliveryAddress?: string;
     paymentReference?: string;
@@ -30,7 +33,10 @@ export const createOrder = onCall(async (request) => {
   if (!Array.isArray(items) || items.length === 0 || items.length > 30) {
     throw new HttpsError("invalid-argument", "Your cart is empty or too large.");
   }
-  if (!roomNumber?.trim() || !deliveryAddress?.trim()) {
+  if (deliveryMethod !== "pickup" && deliveryMethod !== "room_delivery") {
+    throw new HttpsError("invalid-argument", "Choose pickup or room delivery.");
+  }
+  if (deliveryMethod === "room_delivery" && (!roomNumber?.trim() || !deliveryAddress?.trim())) {
     throw new HttpsError("invalid-argument", "Room number and hostel address are required.");
   }
   if (!paymentReference?.trim() || paymentReference.trim().length > 120) {
@@ -58,31 +64,38 @@ export const createOrder = onCall(async (request) => {
     if (!snapshot.exists || !product || product.active !== true || product.stock < quantity) {
       throw new HttpsError("failed-precondition", "A product is unavailable or has insufficient stock. Refresh your cart.");
     }
+    const listedPrice = Number(product.price);
+    const discountPrice = Number(product.discountPrice);
+    const unitPrice = discountPrice > 0 && discountPrice < listedPrice ? discountPrice : listedPrice;
+    const images = Array.isArray(product.images) ? product.images : [];
     return {
       productId: snapshot.id,
       name: product.name as string,
-      imageUrl: (product.imageUrl as string) || "",
-      unitPrice: product.price as number,
+      imageUrl: (images[0] as string) || (product.imageUrl as string) || "",
+      unitPrice,
       quantity
     };
   });
   const subtotal = orderItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const total = subtotal + DELIVERY_FEE;
+  const deliveryFee = deliveryMethod === "room_delivery" ? DELIVERY_FEE : 0;
+  const total = subtotal + deliveryFee;
   const ref = db.collection("orders").doc();
 
   await ref.set({
     customerId: uid,
+    deliveryMethod,
+    pickupLocation: deliveryMethod === "pickup" ? PICKUP_LOCATION : "",
     customer: {
       fullName: String(user.fullName ?? ""),
       mobile: String(user.mobile ?? ""),
       email: String(user.email ?? ""),
-      hostelName: String(user.hostelName ?? ""),
-      roomNumber: roomNumber.trim(),
-      deliveryAddress: deliveryAddress.trim()
+      hostelName: HOSTEL_NAME,
+      roomNumber: deliveryMethod === "room_delivery" ? roomNumber!.trim() : "",
+      deliveryAddress: deliveryMethod === "room_delivery" ? deliveryAddress!.trim() : ""
     },
     items: orderItems,
     subtotal,
-    deliveryFee: DELIVERY_FEE,
+    deliveryFee,
     total,
     paymentStatus: "pending_verification",
     paymentReference: paymentReference.trim(),

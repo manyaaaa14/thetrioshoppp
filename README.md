@@ -1,10 +1,10 @@
-# The Trio Shop
+# THE TRIO SHOP — Jewellery & Accessories
 
-A mobile-first React + Firebase shop for hostel students. Customer accounts, room-based checkout, live products and shop status, admin management, order tracking, and Firebase-backed authorization are included.
+A mobile-first React + Firebase jewellery and accessories shop for hostel students. It includes customer accounts, room-based checkout, live products and shop status, admin management, order tracking, and Firebase-backed authorization.
 
 ## What is and is not automated
 
-Checkout creates an order in **payment verification pending** state. It creates an exact-amount UPI intent/QR and captures the customer's transaction reference, but this app has no payment-gateway credentials or bank callback to independently verify UPI transactions. An authorized admin must verify the payment before the backend confirms the order and deducts stock. A customer entering a reference or tapping the submit button never confirms payment.
+Checkout lets customers choose free pickup at **Room No. 222, Kalpana Hostel** or ₹10 room delivery. The backend validates the selected method and calculates the final amount; pickup orders are never charged the delivery fee. Checkout creates an order in **payment verification pending** state with an exact-amount UPI intent/QR and captures the customer's transaction reference, but this app has no payment-gateway credentials or bank callback to independently verify UPI transactions. An authorized admin must verify the payment before the backend confirms the order and deducts stock. A customer entering a reference or tapping the submit button never confirms payment.
 
 For automatic payment confirmation, integrate a payment provider with signed server-side webhooks; do not treat a client redirect or screenshot as proof of payment. The supplied manual review flow is the secure fallback.
 
@@ -52,10 +52,12 @@ For a Render Node web service, use `npm install` as the build command, `npm run 
 ## Data and authorization
 
 - `products`, `categories`, `banners`, and `settings/shop` are managed from the admin UI and read live by the customer site.
-- `users/{uid}` holds that account's profile and hostel delivery details.
-- `orders/{id}` is created by the `createOrder` callable function, which calculates prices from Firestore, enforces the ₹10 delivery fee, checks the shop status and stock, and requires a room/address and transaction reference. Customers can read only their own orders.
+- `users/{uid}` holds that account's profile, room number, and hostel block/address. The shop serves Kalpana Hostel, so customers no longer enter a hostel name.
+- `orders/{id}` is created by the `createOrder` callable function, which calculates prices from Firestore, checks the shop status and stock, validates the selected pickup/room-delivery method, charges ₹10 only for room delivery, and requires a room/address for room delivery plus a transaction reference. It snapshots the selected method and the customer's name, phone, email, hostel, room, and delivery address so an authorized admin can see them in Admin → Orders. Customers can read only their own orders.
 - `updateOrder` is callable only by an authenticated user with the Firebase custom claim `admin: true`. It alone confirms payment and decrements stock transactionally, and it validates status and delivery estimates.
+- Authorized admins can permanently delete products, categories, and sale banners, or remove the custom customer notice. Deleting a category does not delete its products.
 - Firestore rules prohibit client writes to orders. Storage rules permit only admins to upload images, limited to image files under 5 MB.
 - Firebase Auth email/password accounts are used for customer and admin sign-in; authorization comes from a server-managed custom claim, not from a profile field.
+- Keep administrator email/password values out of the frontend and source control. Set `ADMIN_EMAIL` only in the trusted local shell when running the role-assignment script; possession of an email alone does not grant admin access.
 
 Review the Firebase Console's Auth, Firestore, Storage, Functions, and Hosting settings before launch. Apply App Check, billing/region policies, backups, and monitoring appropriate to your deployment.
