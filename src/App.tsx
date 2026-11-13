@@ -134,7 +134,8 @@ function Header({ user, admin, cartCount }: { user: User | null; admin: boolean;
   const [open, setOpen] = useState(false);
   const links = [
     ["Home", "/"], ["Shop", "/products"], ["Categories", "/categories"],
-    ...(user && !admin ? [["My Orders", "/orders"], ["Profile", "/profile"]] : [])
+    ...(user && !admin ? [["My Orders", "/orders"], ["Profile", "/profile"]] : []),
+    ...(!admin ? [["Admin sign in", "/admin/login"]] : [])
   ];
   return <header className="sticky top-0 z-30 border-b border-[#efe5e5] bg-white/95 backdrop-blur">
     <div className="page-shell flex h-[76px] items-center justify-between gap-5">
@@ -159,7 +160,7 @@ function Footer() {
 
 function Protected({ user, requireAdmin = false, isAdmin = false, children }: { user: User | null; requireAdmin?: boolean; isAdmin?: boolean; children: ReactNode }) {
   if (!user) return <main className="page-shell py-20 text-center"><h2 className="mb-2 text-2xl font-bold">{requireAdmin ? "Administrator sign in required" : "Sign in to continue"}</h2><p className="mb-5 text-stone-500">{requireAdmin ? "Only authorized administrators can access the dashboard." : "Your account keeps your room details and orders together."}</p><Link className="btn-primary inline-block" to={requireAdmin ? "/admin/login" : "/login"}>{requireAdmin ? "Admin sign in" : "Log in or create account"}</Link></main>;
-  if (requireAdmin && !isAdmin) return <main className="page-shell py-20 text-center"><h2 className="text-2xl font-bold">Access restricted</h2><p className="mt-2 text-stone-500">This area is available to authorized administrators only.</p></main>;
+  if (requireAdmin && !isAdmin) return <main className="page-shell py-20 text-center"><h2 className="text-2xl font-bold">Access restricted</h2><p className="mt-2 text-stone-500">This area is available to authorized administrators only.</p><Link className="btn-primary mt-5 inline-block" to="/admin/login">Admin sign in</Link></main>;
   return <>{children}</>;
 }
 
