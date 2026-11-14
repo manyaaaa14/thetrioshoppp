@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { FirebaseError } from "firebase/app";
 import {
   addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, writeBatch
 } from "firebase/firestore";
@@ -28,6 +29,27 @@ const EDITORIAL_IMAGES = [
   "https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=85",
   "https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&w=900&q=85"
 ];
+function firebaseErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof FirebaseError) {
+    switch (error.code) {
+      case "auth/email-already-in-use": return "An account with this email already exists. Log in instead.";
+      case "auth/invalid-credential":
+      case "auth/user-not-found":
+      case "auth/wrong-password": return "The email or password is incorrect.";
+      case "auth/invalid-email": return "Enter a valid email address.";
+      case "auth/weak-password": return "Choose a password with at least 6 characters.";
+      case "auth/operation-not-allowed": return "Email and password sign-in is not enabled for this Firebase project.";
+      case "auth/too-many-requests": return "Too many attempts. Wait a little and try again.";
+      case "auth/network-request-failed":
+      case "unavailable": return "Firebase is temporarily unreachable. Check your connection and try again.";
+      case "permission-denied":
+      case "firestore/permission-denied":
+        return "Firestore denied access. Ask the Firebase project owner to publish the rules from firestore.rules to the project used by this site.";
+      default: return error.message || fallback;
+    }
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 const money = (amount: number) => `₹${amount.toFixed(2).replace(/\.00$/, "")}`;
 const sellingPrice = (product: Product) => product.discountPrice && product.discountPrice > 0 && product.discountPrice < product.price ? product.discountPrice : product.price;
 const timestamp = (value?: { seconds: number }) => value ? new Date(value.seconds * 1000).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Just now";
@@ -53,6 +75,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [profileLoadError, setProfileLoadError] = useState("");
   const [cart, setCart] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem("trio-cart") || "{}") as Record<string, number>; }
     catch { return {}; }
@@ -63,6 +86,7 @@ function App() {
   useEffect(() => onAuthStateChanged(auth, async (current) => {
     setUser(current);
     setProfile(null);
+    setProfileLoadError("");
     setIsAdmin(false);
     if (current) {
       try {
@@ -81,7 +105,10 @@ function App() {
             deliveryAddress: String(data.deliveryAddress ?? "")
           });
         }
-      } catch (error) { console.error("Unable to load account", error); }
+      } catch (error) {
+        console.error("Unable to load account", error);
+        setProfileLoadError(firebaseErrorMessage(error, "Unable to load your profile."));
+      }
     }
     setAuthReady(true);
   }), []);
@@ -110,7 +137,7 @@ function App() {
         <Route path="/categories" element={<Categories />} />
         <Route path="/login" element={<Login onSignedIn={() => navigate("/profile")} />} />
         <Route path="/admin/login" element={<AdminLogin onSignedIn={() => { setIsAdmin(true); navigate("/admin"); }} />} />
-        <Route path="/profile" element={<Protected user={user}><Profile user={user!} profile={profile} onSave={setProfile} /></Protected>} />
+        <Route path="/profile" element={<Protected user={user}><Profile user={user!} profile={profile} profileLoadError={profileLoadError} onSave={(value) => { setProfile(value); setProfileLoadError(""); }} /></Protected>} />
         <Route path="/cart" element={<Cart cart={cart} setQuantity={setQuantity} user={user} profile={profile} clearCart={clearCart} />} />
         <Route path="/orders" element={<Protected user={user}><Orders user={user!} admin={isAdmin} /></Protected>} />
         <Route path="/admin" element={<Protected user={user} requireAdmin isAdmin={isAdmin}><Admin /></Protected>} />
@@ -275,23 +302,34 @@ function Login({ onSignedIn }: { onSignedIn: () => void }) {
   const [register, setRegister] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [profileSaveFailed, setProfileSaveFailed] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile>({ fullName: "", mobile: "", email: "", roomNumber: "", deliveryAddress: "" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const update = (key: keyof CustomerProfile, value: string) => setProfile((current) => ({ ...current, [key]: value }));
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); setError(""); setBusy(true);
+    event.preventDefault(); setError(""); setProfileSaveFailed(false); setBusy(true);
+    let accountCreated = false;
     try {
       if (register) {
         const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        accountCreated = true;
         const customer = { ...profile, email: email.trim() };
         await setDoc(doc(db, "users", credential.user.uid), customer);
       } else {
         await signInWithEmailAndPassword(auth, email.trim(), password);
       }
       onSignedIn();
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to sign in."); }
+    } catch (e) {
+      const message = firebaseErrorMessage(e, "Unable to sign in.");
+      if (accountCreated) {
+        setProfileSaveFailed(true);
+        setError(`Your sign-in account was created, but your profile could not be saved. ${message}`);
+      } else {
+        setError(message);
+      }
+    }
     finally { setBusy(false); }
   }
 
@@ -302,6 +340,7 @@ function Login({ onSignedIn }: { onSignedIn: () => void }) {
       <Field label="Email address" value={email} onChange={setEmail} type="email" required /><Field label="Password" value={password} onChange={setPassword} type="password" required minLength={6} />
     </div>
     {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    {profileSaveFailed && <Link to="/profile" className="mt-3 block text-center text-sm font-semibold text-[#8a5867]">Continue to your profile to finish setting up your account</Link>}
     <button className="btn-primary mt-5 w-full" disabled={busy}>{busy ? "One moment…" : register ? "Create my account" : "Log in"}</button>
     <button type="button" className="mt-4 w-full text-sm font-semibold text-[#8a5867]" onClick={() => { setRegister(!register); setError(""); }}>{register ? "Already have an account? Log in" : "New to THE TRIO SHOP? Create an account"}</button>
   </form></main>;
@@ -323,7 +362,7 @@ function AdminLogin({ onSignedIn }: { onSignedIn: () => void }) {
         return;
       }
       onSignedIn();
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to sign in."); }
+    } catch (e) { setError(firebaseErrorMessage(e, "Unable to sign in.")); }
     finally { setBusy(false); }
   }
   return <main className="page-shell grid min-h-[65vh] place-items-center py-10"><form onSubmit={submit} className="card soft-shadow w-full max-w-md p-6 sm:p-8">
@@ -338,7 +377,7 @@ function Field({ label, value, onChange, type = "text", required = false, minLen
   return <label><span className="label">{label}</span><input className="field" type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} minLength={minLength} /></label>;
 }
 
-function Profile({ user, profile, onSave }: { user: User; profile: CustomerProfile | null; onSave: (value: CustomerProfile) => void }) {
+function Profile({ user, profile, profileLoadError, onSave }: { user: User; profile: CustomerProfile | null; profileLoadError: string; onSave: (value: CustomerProfile) => void }) {
   const [form, setForm] = useState<CustomerProfile>(profile || { fullName: "", mobile: "", email: user.email || "", roomNumber: "", deliveryAddress: "" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -349,9 +388,9 @@ function Profile({ user, profile, onSave }: { user: User; profile: CustomerProfi
   async function save(event: FormEvent) {
     event.preventDefault(); setMessage(""); setError("");
     try { await setDoc(doc(db, "users", user.uid), { ...form, email: user.email || form.email }); onSave(form); setMessage("Your details have been saved."); }
-    catch (e) { setError(e instanceof Error ? e.message : "Unable to save profile."); }
+    catch (e) { setError(firebaseErrorMessage(e, "Unable to save profile.")); }
   }
-  return <main className="page-shell py-10"><div className="mx-auto max-w-2xl"><div className="flex items-center gap-3"><CircleUserRound className="text-[#a16c71]" size={28} /><div><p className="text-sm text-stone-500">YOUR ACCOUNT</p><h1 className="text-2xl font-extrabold">Delivery details</h1></div></div><form onSubmit={save} className="card mt-6 grid gap-4 p-5 sm:grid-cols-2 sm:p-7">
+  return <main className="page-shell py-10"><div className="mx-auto max-w-2xl"><div className="flex items-center gap-3"><CircleUserRound className="text-[#a16c71]" size={28} /><div><p className="text-sm text-stone-500">YOUR ACCOUNT</p><h1 className="text-2xl font-extrabold">Delivery details</h1></div></div>{profileLoadError && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{profileLoadError}</p>}<form onSubmit={save} className="card mt-6 grid gap-4 p-5 sm:grid-cols-2 sm:p-7">
     <Field label="Full name" value={form.fullName} onChange={(v) => update("fullName", v)} required /><Field label="Mobile number" value={form.mobile} onChange={(v) => update("mobile", v)} type="tel" required /><label className="sm:col-span-2"><span className="label">Email address</span><input className="field bg-stone-50" value={user.email || ""} readOnly /></label><Field label="Room number" value={form.roomNumber} onChange={(v) => update("roomNumber", v)} required /><div className="sm:col-span-2"><Field label="Delivery address / hostel block" value={form.deliveryAddress} onChange={(v) => update("deliveryAddress", v)} required /></div>
     {message && <p className="text-sm text-green-700 sm:col-span-2">{message}</p>}{error && <p className="text-sm text-red-600 sm:col-span-2">{error}</p>}<button className="btn-primary sm:col-span-2">Save changes</button><button type="button" onClick={() => void signOut(auth)} className="text-sm font-semibold text-stone-500 sm:col-span-2">Sign out</button>
   </form></div></main>;
