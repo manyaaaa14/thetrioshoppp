@@ -11,13 +11,13 @@ For automatic payment confirmation, integrate a payment provider with signed ser
 ## Requirements
 
 - Node.js 20+
-- A Firebase project with Email/Password Authentication, Cloud Firestore, Firebase Storage, Cloud Functions, and Firebase Hosting enabled
+- A Firebase project with Email/Password and Google Authentication providers, Cloud Firestore, Firebase Storage, Cloud Functions, and Firebase Hosting enabled
 - Firebase CLI (`npm install -g firebase-tools`) and permission to deploy the project
 
 ## Local setup
 
 1. Copy `.env.example` to `.env` and fill in the Firebase Web App configuration from Firebase Console → Project settings → Your apps.
-2. In Firebase Console, enable **Authentication → Email/Password**.
+2. In Firebase Console, enable **Authentication → Email/Password** and **Google** sign-in providers. Add localhost and the deployed site domain under **Authentication → Settings → Authorized domains**; configure the verification and password-reset email templates.
 3. Install frontend dependencies with `npm install`, then start the app with `npm run dev`.
 4. Create an administrator account directly in Firebase Authentication. Public sign-up is customer-only; there is no admin registration page.
 5. Assign that existing account the `admin: true` custom claim from a trusted local machine:

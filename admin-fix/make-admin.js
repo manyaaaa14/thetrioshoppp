@@ -1,7 +1,7 @@
 const { applicationDefault, initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 
-const projectId = "thetrioshop-81199";
+const projectId = "thetrioshop-94fc3";
 const email = process.env.ADMIN_EMAIL;
 
 if (!email) {

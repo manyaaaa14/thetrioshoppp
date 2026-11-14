@@ -32,8 +32,17 @@ button { cursor: pointer; }
 .label { display: block; margin-bottom: 6px; color: #66585a; font-size: 13px; font-weight: 650; }
 .card { border: 1px solid #f0e7e5; border-radius: 18px; background: white; }
 .pill { border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 700; }
+.auth-visual { background-position: center; background-size: cover; }
+.auth-enter { animation: auth-rise .45s ease-out both; }
+.auth-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.45); border-top-color: white; border-radius: 50%; animation: auth-spin .7s linear infinite; }
+@keyframes auth-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes auth-spin { to { transform: rotate(360deg); } }
 ::selection { color: #4a3339; background: #f1dfe2; }
 
 @media (max-width: 640px) {
   .page-shell { width: min(100% - 28px, 1120px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-enter, .auth-spinner { animation: none; }
 }

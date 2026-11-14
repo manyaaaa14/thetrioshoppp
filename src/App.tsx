@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { FirebaseError } from "firebase/app";
 import {
   addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, writeBatch
 } from "firebase/firestore";
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { QRCodeSVG } from "qrcode.react";
@@ -12,6 +11,8 @@ import {
   ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleUserRound, Clock3, Gem, Menu, Plus, Search, ShoppingBag, ShoppingCart, Sparkles, Trash2, X
 } from "lucide-react";
 import { auth, db, functions, isFirebaseConfigured, storage } from "./firebase";
+import { AuthPage } from "./AuthPage";
+import { firebaseErrorMessage } from "./firebaseErrors";
 import type { Category, CustomerProfile, DeliveryMethod, Order, Product, ShopBanner, ShopSettings } from "./types";
 
 const CONTACT = "9729794568";
@@ -29,27 +30,6 @@ const EDITORIAL_IMAGES = [
   "https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=85",
   "https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&w=900&q=85"
 ];
-function firebaseErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof FirebaseError) {
-    switch (error.code) {
-      case "auth/email-already-in-use": return "An account with this email already exists. Log in instead.";
-      case "auth/invalid-credential":
-      case "auth/user-not-found":
-      case "auth/wrong-password": return "The email or password is incorrect.";
-      case "auth/invalid-email": return "Enter a valid email address.";
-      case "auth/weak-password": return "Choose a password with at least 6 characters.";
-      case "auth/operation-not-allowed": return "Email and password sign-in is not enabled for this Firebase project.";
-      case "auth/too-many-requests": return "Too many attempts. Wait a little and try again.";
-      case "auth/network-request-failed":
-      case "unavailable": return "Firebase is temporarily unreachable. Check your connection and try again.";
-      case "permission-denied":
-      case "firestore/permission-denied":
-        return "Firestore denied access. Ask the Firebase project owner to publish the rules from firestore.rules to the project used by this site.";
-      default: return error.message || fallback;
-    }
-  }
-  return error instanceof Error ? error.message : fallback;
-}
 const money = (amount: number) => `₹${amount.toFixed(2).replace(/\.00$/, "")}`;
 const sellingPrice = (product: Product) => product.discountPrice && product.discountPrice > 0 && product.discountPrice < product.price ? product.discountPrice : product.price;
 const timestamp = (value?: { seconds: number }) => value ? new Date(value.seconds * 1000).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Just now";
@@ -135,7 +115,7 @@ function App() {
         <Route path="/products" element={<Products addToCart={addToCart} />} />
         <Route path="/products/:productId" element={<ProductDetail addToCart={addToCart} />} />
         <Route path="/categories" element={<Categories />} />
-        <Route path="/login" element={<Login onSignedIn={() => navigate("/profile")} />} />
+        <Route path="/login" element={<AuthPage onAuthenticated={(destination = "/") => navigate(destination)} />} />
         <Route path="/admin/login" element={<AdminLogin onSignedIn={() => { setIsAdmin(true); navigate("/admin"); }} />} />
         <Route path="/profile" element={<Protected user={user}><Profile user={user!} profile={profile} profileLoadError={profileLoadError} onSave={(value) => { setProfile(value); setProfileLoadError(""); }} /></Protected>} />
         <Route path="/cart" element={<Cart cart={cart} setQuantity={setQuantity} user={user} profile={profile} clearCart={clearCart} />} />
@@ -159,6 +139,13 @@ function SetupRequired() {
 
 function Header({ user, admin, cartCount }: { user: User | null; admin: boolean; cartCount: number }) {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  async function handleSignOut() {
+    await signOut(auth);
+    setOpen(false);
+    navigate("/");
+  }
+  const displayName = user?.displayName?.split(/\s+/)[0] || user?.email?.split("@")[0] || "there";
   const links = [
     ["Home", "/"], ["Shop", "/products"], ["Categories", "/categories"],
     ...(user && !admin ? [["My Orders", "/orders"], ["Profile", "/profile"]] : []),
@@ -173,11 +160,12 @@ function Header({ user, admin, cartCount }: { user: User | null; admin: boolean;
       <nav className="hidden items-center gap-7 md:flex">{links.map(([label, path]) => <NavLink key={path} to={path} className={({ isActive }) => `text-sm font-medium ${isActive ? "text-[#8a5867]" : "text-stone-600 hover:text-stone-950"}`}>{label}</NavLink>)}</nav>
       <div className="flex items-center gap-2">
         <Link aria-label="Your cart" to="/cart" className="relative grid h-10 w-10 place-items-center rounded-xl hover:bg-[#fbf5f5]"><ShoppingCart size={19} />{cartCount > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#b97782] px-1 text-[10px] font-bold text-white">{cartCount}</span>}</Link>
-        {user && admin ? <Link to="/admin" className="hidden rounded-xl border border-[#efe5e5] bg-white px-3 py-2 text-sm font-semibold sm:block">Admin</Link> : !user ? <Link to="/login" className="hidden rounded-xl border border-[#efe5e5] bg-white px-3 py-2 text-sm font-semibold sm:block">Log in</Link> : null}
+        {user && !admin && <span className="hidden max-w-28 truncate text-sm font-medium text-stone-600 sm:block">Hi, {displayName}</span>}
+        {user && admin ? <Link to="/admin" className="hidden rounded-xl border border-[#efe5e5] bg-white px-3 py-2 text-sm font-semibold sm:block">Admin</Link> : user ? <button onClick={() => void handleSignOut()} className="hidden rounded-xl border border-[#efe5e5] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#fbf5f5] sm:block">Sign out</button> : <Link to="/login" className="hidden rounded-xl border border-[#efe5e5] bg-white px-3 py-2 text-sm font-semibold sm:block">Log in</Link>}
         <button className="grid h-10 w-10 place-items-center rounded-xl md:hidden" onClick={() => setOpen(!open)} aria-label="Toggle menu">{open ? <X size={20} /> : <Menu size={20} />}</button>
       </div>
     </div>
-    {open && <nav className="page-shell grid gap-1 border-t border-[#eae9e2] py-3 md:hidden">{links.map(([label, path]) => <Link onClick={() => setOpen(false)} key={path} className="rounded-lg px-3 py-2 text-sm" to={path}>{label}</Link>)}<Link onClick={() => setOpen(false)} className="rounded-lg px-3 py-2 text-sm" to={user ? admin ? "/admin" : "/profile" : "/login"}>{user ? admin ? "Admin dashboard" : "My profile" : "Log in / sign up"}</Link></nav>}
+    {open && <nav className="page-shell grid gap-1 border-t border-[#eae9e2] py-3 md:hidden">{user && !admin && <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Signed in as {displayName}</p>}{links.map(([label, path]) => <Link onClick={() => setOpen(false)} key={path} className="rounded-lg px-3 py-2 text-sm" to={path}>{label}</Link>)}<Link onClick={() => setOpen(false)} className="rounded-lg px-3 py-2 text-sm" to={user ? admin ? "/admin" : "/profile" : "/login"}>{user ? admin ? "Admin dashboard" : "My profile" : "Log in / sign up"}</Link>{user && <button onClick={() => void handleSignOut()} className="rounded-lg px-3 py-2 text-left text-sm text-[#8a5867]">Sign out</button>}</nav>}
   </header>;
 }
 
@@ -296,54 +284,6 @@ function ProductDetail({ addToCart }: { addToCart: (id: string, quantity?: numbe
 function Categories() {
   const categories = useCollection<Category>("categories", [where("active", "==", true)]);
   return <main className="page-shell py-12"><p className="text-sm font-semibold uppercase tracking-[.18em] text-[#a16c71]">EXPLORE THE EDITS</p><h1 className="brand-serif mt-1 text-4xl font-semibold">Find your kind of sparkle</h1><p className="mt-2 max-w-xl text-sm leading-6 text-stone-500">From everyday hoops to little gifts worth keeping, there’s a piece for every version of you.</p><div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">{categories.map((category, index) => <Link key={category.id} to={`/products?category=${category.id}`} className="card group overflow-hidden"><div className="aspect-[1.15] overflow-hidden bg-[#f6eceb]">{category.imageUrl ? <img className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" src={category.imageUrl} alt={category.name} /> : <img className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" src={EDITORIAL_IMAGES[index % EDITORIAL_IMAGES.length]} alt="" />}</div><p className="p-4 font-semibold">{category.name}<ArrowRight className="float-right text-[#a16c71]" size={18} /></p></Link>)}{categories.length === 0 && <p className="col-span-full card p-8 text-center text-sm text-stone-500">No categories are available right now.</p>}</div></main>;
-}
-
-function Login({ onSignedIn }: { onSignedIn: () => void }) {
-  const [register, setRegister] = useState(false);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [profileSaveFailed, setProfileSaveFailed] = useState(false);
-  const [profile, setProfile] = useState<CustomerProfile>({ fullName: "", mobile: "", email: "", roomNumber: "", deliveryAddress: "" });
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const update = (key: keyof CustomerProfile, value: string) => setProfile((current) => ({ ...current, [key]: value }));
-
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setError(""); setProfileSaveFailed(false); setBusy(true);
-    let accountCreated = false;
-    try {
-      if (register) {
-        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        accountCreated = true;
-        const customer = { ...profile, email: email.trim() };
-        await setDoc(doc(db, "users", credential.user.uid), customer);
-      } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-      }
-      onSignedIn();
-    } catch (e) {
-      const message = firebaseErrorMessage(e, "Unable to sign in.");
-      if (accountCreated) {
-        setProfileSaveFailed(true);
-        setError(`Your sign-in account was created, but your profile could not be saved. ${message}`);
-      } else {
-        setError(message);
-      }
-    }
-    finally { setBusy(false); }
-  }
-
-  return <main className="page-shell grid min-h-[65vh] place-items-center py-10"><form onSubmit={submit} className="card soft-shadow w-full max-w-lg p-6 sm:p-8">
-    <span className="text-sm font-bold text-[#a16c71]">{register ? "YOUR HOSTEL ACCOUNT" : "WELCOME BACK"}</span><h1 className="mt-2 text-2xl font-extrabold">{register ? "A room number away." : "Good to see you."}</h1><p className="mt-1 text-sm text-stone-500">{register ? "Sign up to get your jewellery delivered to your room." : "Sign in to shop and track your orders."}</p>
-    <div className="mt-6 grid gap-4">
-      {register && <><Field label="Full name" value={profile.fullName} onChange={(v) => update("fullName", v)} required /><Field label="Mobile number" value={profile.mobile} onChange={(v) => update("mobile", v)} type="tel" required /><Field label="Room number" value={profile.roomNumber} onChange={(v) => update("roomNumber", v)} required /><Field label="Delivery address / hostel block" value={profile.deliveryAddress} onChange={(v) => update("deliveryAddress", v)} required /></>}
-      <Field label="Email address" value={email} onChange={setEmail} type="email" required /><Field label="Password" value={password} onChange={setPassword} type="password" required minLength={6} />
-    </div>
-    {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-    {profileSaveFailed && <Link to="/profile" className="mt-3 block text-center text-sm font-semibold text-[#8a5867]">Continue to your profile to finish setting up your account</Link>}
-    <button className="btn-primary mt-5 w-full" disabled={busy}>{busy ? "One moment…" : register ? "Create my account" : "Log in"}</button>
-    <button type="button" className="mt-4 w-full text-sm font-semibold text-[#8a5867]" onClick={() => { setRegister(!register); setError(""); }}>{register ? "Already have an account? Log in" : "New to THE TRIO SHOP? Create an account"}</button>
-  </form></main>;
 }
 
 function AdminLogin({ onSignedIn }: { onSignedIn: () => void }) {
